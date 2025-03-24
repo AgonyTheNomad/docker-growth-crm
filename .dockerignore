@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+build
+.git
+.github
+.gitignore
+README.md
+.DS_Store
+.env.local
+.env.development
+.env.test
+.env.production
+**/.pytest_cache
+**/__pycache__
+**/*.pyc

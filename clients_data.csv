@@ -1,0 +1,11 @@
+external_id,email,phone,timezone,locale,first_name,last_name,has_completed_onboarding
+client_01,client01@example.com,000-000-0001,America/New_York,en,John,Doe,True
+client_02,client02@example.com,000-000-0002,America/Los_Angeles,en,Jane,Smith,False
+client_03,client03@example.com,000-000-0003,America/Chicago,en,Mike,Johnson,True
+client_04,client04@example.com,000-000-0004,America/Denver,en,Emily,Williams,False
+client_05,client05@example.com,000-000-0005,America/Phoenix,en,David,Jones,True
+client_06,client06@example.com,000-000-0006,America/Indianapolis,en,Amy,Brown,False
+client_07,client07@example.com,000-000-0007,America/Honolulu,en,Robert,Davis,True
+client_08,client08@example.com,000-000-0008,America/Anchorage,en,Laura,Miller,False
+client_09,client09@example.com,000-000-0009,America/New_York,en,James,Wilson,True
+client_10,client10@example.com,000-000-0010,America/Los_Angeles,en,Sarah,Moore,False
