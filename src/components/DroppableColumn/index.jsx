@@ -23,7 +23,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  CircularProgress
+  CircularProgress,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import { styled } from '@mui/system';
 import SearchIcon from '@mui/icons-material/Search';
@@ -59,30 +61,17 @@ const ColumnContainer = styled(Paper)(({ theme }) => ({
   margin: '0.75rem',
   borderRadius: 8,
   overflow: 'hidden',
-  boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
-}));
-
-const ColumnHeader = styled('div')(({ theme }) => ({
-  backgroundColor: theme.palette.primary.main,
-  color: '#fff',
-  padding: '0.75rem 1rem',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between'
-}));
-
-const ColumnTitle = styled(Typography)(({ theme }) => ({
-  fontWeight: 'bold',
-  fontSize: '1.1rem'
+  boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+  borderTop: `4px solid ${theme.palette.primary.main}` // Colored top border to indicate status type
 }));
 
 const FilterArea = styled('div')({
   backgroundColor: '#f9f9f9',
-  borderBottom: '1px solid #ddd',
   padding: '0.75rem 1rem',
   display: 'flex',
   flexDirection: 'column',
-  gap: '0.5rem'
+  gap: '0.5rem',
+  borderBottom: '1px solid #ddd'
 });
 
 // The body is set to flex:1 so it fills available space, with its own vertical scroll.
@@ -116,7 +105,6 @@ const DroppableColumn = ({
   children,
   onDrop,
   selectedClients = [],
-  loadMoreClients,
   loadAllClients,
   hasMore,
   totalCount,
@@ -128,10 +116,12 @@ const DroppableColumn = ({
   const [selectedStatus, setSelectedStatus] = useState('');
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [clientToUpdate, setClientToUpdate] = useState(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [page, setPage] = useState(1);
+  const [allLoaded, setAllLoaded] = useState(false);
   const columnBodyRef = useRef(null);
+  const [feedback, setFeedback] = useState({ open: false, message: '', severity: 'info' });
 
   // Convert children to array
   const allChildren = Children.toArray(children);
@@ -171,7 +161,7 @@ const DroppableColumn = ({
 
   const handleClearSearch = () => {
     setInputValue('');
-    onSearch(title, '', selectedStatus || undefined);
+    onSearch && onSearch(title, '', selectedStatus || undefined);
   };
 
   const handleKeyPress = (e) => {
@@ -194,20 +184,50 @@ const DroppableColumn = ({
 
   useEffect(() => {
     setPage(1);
+    setAllLoaded(false); // Reset allLoaded state when title changes
   }, [title]);
 
-  // Manual Load More button
-  const handleLoadMore = async () => {
-    if (!hasMore || loadingMore) return;
-    setLoadingMore(true);
+  // Check if we've loaded all clients when count changes
+  useEffect(() => {
+    if (currentCount >= totalCount * 0.99) { // Allow for small discrepancies
+      console.log(`All clients loaded for ${title}: ${currentCount}/${totalCount}`);
+      setAllLoaded(true);
+      setLoadingAll(false);
+    }
+  }, [currentCount, totalCount, title]);
+
+  // Handle Load All
+  const handleLoadAll = () => {
+    if (loadingAll) return;
+    
+    console.log(`Starting loadAll for status: ${title}`);
+    setLoadingAll(true);
+    
     try {
-      const nextPage = page + 1;
-      await loadMoreClients(title, nextPage);
-      setPage(nextPage);
+      // Make sure loadAllClients exists and is a function
+      if (typeof loadAllClients !== 'function') {
+        console.error('loadAllClients is not a function:', loadAllClients);
+        setFeedback({
+          open: true,
+          message: 'Load all function not properly configured',
+          severity: 'error'
+        });
+        return;
+      }
+      
+      // Call the loadAllClients function directly
+      loadAllClients(title);
+      console.log(`Called loadAllClients(${title})`);
+      
+      // We rely on WebSocket message handler to update state and UI
     } catch (error) {
-      console.error('Error loading more:', error);
-    } finally {
-      setLoadingMore(false);
+      console.error('Error loading all clients:', error);
+      setFeedback({
+        open: true,
+        message: `Failed to load all clients: ${error.message}`,
+        severity: 'error'
+      });
+      setLoadingAll(false);
     }
   };
 
@@ -245,31 +265,57 @@ const DroppableColumn = ({
     setSelectedStatus('');
   }, [clientToUpdate, selectedStatus, onDrop]);
 
-  // Determine actual total count
-  const actualTotal = typeof totalAvailable === 'number' ? totalAvailable : totalCount;
+  // Determine actual total count - use totalCount directly if provided
+  // fallback to totalAvailable and finally to the children count
+  const actualTotalCount = totalCount || totalAvailable || currentCount;
+
+  // Determine if we should show the load all button
+  const showLoadAllButton = !isSearchActive && currentCount < actualTotalCount && hasMore && !allLoaded;
 
   return (
-    <ColumnContainer id={id} ref={dropRef} sx={{ boxShadow: isOver && canDrop ? '0 0 6px rgba(0,200,0,0.5)' : undefined }}>
-      {/* Header */}
-      <ColumnHeader>
-        {typeof title === 'string' ? (
-          <ColumnTitle>{title}</ColumnTitle>
-        ) : (
-          <Box display="flex" alignItems="center" gap={1}>
-            {title}
-          </Box>
-        )}
-        <Typography variant="body2" sx={{ opacity: 0.8 }}>
-          {displayedChildren.length} / {actualTotal}
-        </Typography>
-      </ColumnHeader>
+    <ColumnContainer 
+      id={id} 
+      ref={dropRef} 
+      sx={{ 
+        boxShadow: isOver && canDrop ? '0 0 6px rgba(0,200,0,0.5)' : undefined,
+        backgroundColor: '#1e293b' // Dark background
+      }}
+    >
+      {/* Status header that matches your StatusHeaders component styling */}
+      <div className="status-header flex-shrink-0 px-4 py-2 mx-0 rounded-t-md bg-gray-700 text-center">
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-white">{title}</span>
+          <span className="text-sm px-2 py-1 bg-gray-600 text-blue-300 rounded-md">
+            {currentCount} / {actualTotalCount}
+          </span>
+        </div>
+      </div>
 
       {/* Filter Area */}
-      <FilterArea>
+      <FilterArea sx={{ backgroundColor: '#111827', borderBottom: '1px solid #374151' }}>
         {STATUS_OPTIONS[title] && (
           <FormControl fullWidth size="small">
-            <InputLabel>Status</InputLabel>
-            <Select value={selectedStatus} onChange={handleStatusChange} label="Status">
+            <InputLabel sx={{ color: '#94a3b8' }}>Status</InputLabel>
+            <Select 
+              value={selectedStatus} 
+              onChange={handleStatusChange} 
+              label="Status"
+              sx={{
+                color: 'white',
+                '.MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#374151'
+                },
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#4b5563'
+                },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#60a5fa'
+                },
+                '.MuiSvgIcon-root': {
+                  color: '#94a3b8'
+                }
+              }}
+            >
               <MenuItem value="">
                 <em>All</em>
               </MenuItem>
@@ -291,53 +337,132 @@ const DroppableColumn = ({
             endAdornment: (
               <InputAdornment position="end">
                 {inputValue && (
-                  <IconButton size="small" onClick={handleClearSearch} disabled={isSearching}>
+                  <IconButton size="small" onClick={handleClearSearch} disabled={isSearching} sx={{ color: '#94a3b8' }}>
                     <ClearIcon fontSize="small" />
                   </IconButton>
                 )}
-                <IconButton size="small" onClick={handleServerSearch} disabled={!inputValue || isSearching} edge="end">
-                  {isSearching ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />}
+                <IconButton size="small" onClick={handleServerSearch} disabled={!inputValue || isSearching} edge="end" sx={{ color: '#94a3b8' }}>
+                  {isSearching ? <CircularProgress size={16} sx={{ color: '#60a5fa' }} /> : <SearchIcon fontSize="small" />}
                 </IconButton>
               </InputAdornment>
-            )
+            ),
+            sx: {
+              color: 'white',
+              '.MuiOutlinedInput-notchedOutline': {
+                borderColor: '#374151'
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#4b5563'
+              },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#60a5fa'
+              }
+            }
+          }}
+          InputLabelProps={{
+            sx: { color: '#94a3b8' }
           }}
         />
+        
+        {/* Small indicator of how many items are shown */}
+        <Typography variant="caption" sx={{ color: '#94a3b8' }} align="right">
+          {displayedChildren.length} of {currentCount} loaded items
+        </Typography>
       </FilterArea>
 
       {/* Body */}
-      <ColumnBody ref={columnBodyRef}>
+      <ColumnBody ref={columnBodyRef} sx={{ backgroundColor: '#0f172a' }}>
         {displayedChildren.length > 0 ? (
           displayedChildren.map((child, idx) => (
             <Box key={child.key || idx}>{child}</Box>
           ))
         ) : (
-          <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ mt: 2 }}>
+          <Typography variant="body2" sx={{ color: '#94a3b8' }} textAlign="center" mt={2}>
             {inputValue ? 'No matching clients found' : 'No clients in this status'}
           </Typography>
         )}
-        {loadingMore && <LoadingSpinner />}
+        {loadingAll && (
+          <Box sx={{ textAlign: 'center', py: 2 }}>
+            <CircularProgress size={24} sx={{ color: '#3b82f6' }} />
+            <Typography variant="body2" sx={{ color: '#94a3b8', mt: 1 }}>
+              Loading all clients...
+            </Typography>
+          </Box>
+        )}
       </ColumnBody>
 
-      {/* Footer with Load More button */}
-      {!isSearchActive && currentCount < actualTotal && (
-        <ColumnFooter>
-          <Button variant="contained" size="small" disabled={loadingMore || !hasMore} onClick={handleLoadMore}>
-            {loadingMore ? 'Loading...' : `Load More (${actualTotal - currentCount} remaining)`}
+      {/* Footer with Load All button */}
+      {showLoadAllButton && (
+        <ColumnFooter sx={{ backgroundColor: '#1e293b', borderTop: '1px solid #374151' }}>
+          <Button 
+            variant="contained" 
+            size="small" 
+            disabled={loadingAll} 
+            onClick={handleLoadAll}
+            sx={{ 
+              backgroundColor: '#3b82f6',
+              '&:hover': {
+                backgroundColor: '#2563eb',
+              }
+            }}
+          >
+            {loadingAll ? (
+              <React.Fragment>
+                <CircularProgress size={16} sx={{ mr: 1, color: 'white' }} />
+                Loading...
+              </React.Fragment>
+            ) : (
+              `Load All (${actualTotalCount - currentCount} remaining)`
+            )}
           </Button>
-          <Typography variant="caption" display="block" mt={1}>
-            {currentCount} of {actualTotal}
+        </ColumnFooter>
+      )}
+
+      {/* Show message when all clients are loaded */}
+      {allLoaded && (
+        <ColumnFooter sx={{ backgroundColor: '#1e293b', borderTop: '1px solid #374151' }}>
+          <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+            All clients loaded ({currentCount})
           </Typography>
         </ColumnFooter>
       )}
 
       {/* Modal for sub-status selection */}
-      <Dialog open={statusModalOpen} onClose={() => setStatusModalOpen(false)}>
+      <Dialog 
+        open={statusModalOpen} 
+        onClose={() => setStatusModalOpen(false)}
+        PaperProps={{
+          sx: {
+            backgroundColor: '#1e293b',
+            color: 'white'
+          }
+        }}
+      >
         <DialogTitle>Select Status</DialogTitle>
         <DialogContent>
           <Box sx={{ minWidth: 300 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Status</InputLabel>
-              <Select value={selectedStatus} onChange={handleStatusChange} label="Status">
+              <InputLabel sx={{ color: '#94a3b8' }}>Status</InputLabel>
+              <Select 
+                value={selectedStatus} 
+                onChange={handleStatusChange} 
+                label="Status"
+                sx={{
+                  color: 'white',
+                  '.MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#374151'
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#4b5563'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#60a5fa'
+                  },
+                  '.MuiSvgIcon-root': {
+                    color: '#94a3b8'
+                  }
+                }}
+              >
                 <MenuItem value="">
                   <em>Select a status</em>
                 </MenuItem>
@@ -349,12 +474,38 @@ const DroppableColumn = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStatusModalOpen(false)}>Cancel</Button>
-          <Button onClick={confirmStatusChange} disabled={!selectedStatus} variant="contained">
+          <Button onClick={() => setStatusModalOpen(false)} sx={{ color: '#94a3b8' }}>Cancel</Button>
+          <Button 
+            onClick={confirmStatusChange} 
+            disabled={!selectedStatus} 
+            variant="contained"
+            sx={{ 
+              backgroundColor: '#3b82f6',
+              '&:hover': {
+                backgroundColor: '#2563eb',
+              }
+            }}
+          >
             Confirm
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Feedback Snackbar */}
+      <Snackbar
+        open={feedback.open}
+        autoHideDuration={6000}
+        onClose={() => setFeedback(prev => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setFeedback(prev => ({ ...prev, open: false }))} 
+          severity={feedback.severity} 
+          sx={{ width: '100%' }}
+        >
+          {feedback.message}
+        </Alert>
+      </Snackbar>
     </ColumnContainer>
   );
 };

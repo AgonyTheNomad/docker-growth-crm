@@ -1,7 +1,7 @@
-# PowerShell script to auto-update from GitHub and rebuild Docker container
+﻿# PowerShell script to auto-update from GitHub and rebuild Docker container
 
 # Change to your project directory
-Set-Location -Path "C:\Users\jkolt\Desktop\growth_crm-main"
+Set-Location -Path "C:\Users\jkolt\Desktop\growth_crm_clean"
 
 # Store current commit hash
 $CurrentHash = git rev-parse HEAD

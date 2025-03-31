@@ -9,6 +9,8 @@ import ConfirmationModal from '../../components/ConfirmationModal';
 import AlertModal from '../../components/AlertModal';
 import RequiredFieldsModal from '../../components/RequiredFieldsModal';
 import ClientSearch from './ClientSearch';
+import HeaderContainer from './HeaderContainer';
+import StatusHeaders from './StatusHeaders';
 import { allowedEmails } from '../../utils/allowedEmails';
 import { Snackbar, Alert, Badge, Dialog } from '@mui/material';
 import { STATUSES, STATUS_FIELDS, FRANCHISE_OPTIONS } from './constants';
@@ -20,7 +22,7 @@ const ColumnsContainer = styled('div')({
   display: 'flex',
   overflowX: 'auto',
   // Set fixed height so that the board fits the main screen (adjust as needed)
-  height: 'calc(100vh - 180px)'
+  height: 'calc(100vh - 280px)' // Increased to account for the header container
 });
 
 const logState = (action, data = {}) => {
@@ -132,10 +134,26 @@ const FranchiseClients = () => {
     try {
       const parsedData = typeof message === 'string' ? JSON.parse(message) : message;
       logState('Parsed WebSocket data', { parsedData });
+      
+      // Handle search results separately
       if (parsedData.type === 'searchResults') {
         setSearchResults(parsedData.clients || []);
         return null;
       }
+      
+      // **New Branch: Handle allClientsForStatus**
+      if (parsedData.type === 'allClientsForStatus') {
+        setClients(prev => ({
+          ...prev,
+          [parsedData.status]: {
+            preview: parsedData.clients || [],
+            total: parsedData.total || 0
+          }
+        }));
+        return;
+      }
+      
+      // Existing: if we haven't sent the growthbacker filter yet...
       if (!window.wsGrowthbackerSent) {
         window.wsGrowthbackerSent = true;
         const wsMessage = {
@@ -146,6 +164,8 @@ const FranchiseClients = () => {
         console.log("[WebSocket] Sending filter request:", wsMessage);
         return wsMessage;
       }
+      
+      // For other message types (e.g., preview messages)
       setClients(prev => {
         const normalized = {};
         const clientData = parsedData.data || parsedData;
@@ -163,6 +183,7 @@ const FranchiseClients = () => {
       setError('Error processing data from server');
     }
   }, [growthbackerFilter, filterMode]);
+  
 
   const { connected, wsError, loadMoreClients, loadAllClients, updateClientStatus, sendMessage } =
     useWebSocket(selectedFranchiseValue, handleWebSocketMessage, setHasMore, setLoading);
@@ -202,7 +223,15 @@ const FranchiseClients = () => {
   };
 
   const getFilteredClients = (clients, status) => {
-    const statusClients = clients[status]?.preview || [];
+    const statusData = clients[status] || { preview: [], total: 0 };
+    const statusClients = statusData.preview;
+  
+    // If the full list is loaded (load-all was triggered), return everything
+    if (statusClients.length === statusData.total && statusData.total > 0) {
+      return statusClients;
+    }
+  
+    // Otherwise, apply the filter based on filterMode
     if (filterMode === 'assigned') {
       if (growthbackerFilter) {
         return statusClients.filter(client => {
@@ -217,7 +246,8 @@ const FranchiseClients = () => {
     }
     return statusClients;
   };
-
+  
+  
   const totalClients = useMemo(() => {
     let total = 0;
     Object.values(clients).forEach(statusData => {
@@ -491,6 +521,17 @@ const FranchiseClients = () => {
     );
   }
 
+  // Create status header data for the status header component
+  const statusHeaderData = STATUSES.map(status => {
+    const statusData = clients[status] || { preview: [], total: 0 };
+    const filteredClients = getFilteredClients(clients, status);
+    return {
+      name: status,
+      count: filteredClients.length,
+      total: statusData.total || 0
+    };
+  });
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="franchise-clients-container">
@@ -577,19 +618,24 @@ const FranchiseClients = () => {
           onSelectClient={handleSelectClientFromSearch}
         />
 
-        <div className="total-client-count">
-          <h2>Total Clients: {totalClients}</h2>
-          {filterMode === 'unassigned' && (
-            <div className="text-yellow-400 text-sm mt-1">
-              Showing only unassigned clients
-            </div>
-          )}
-          {filterMode === 'assigned' && growthbackerFilter && (
-            <div className="text-blue-400 text-sm mt-1">
-              Filtering by growthbacker: {growthbackerFilter}
-            </div>
-          )}
+        {/* Updated HeaderContainer with statuses prop */}
+        <div className="mb-4">
+          <HeaderContainer totalClients={totalClients} statuses={statusHeaderData} />
+          
+
         </div>
+
+        {filterMode === 'unassigned' && (
+          <div className="text-yellow-400 text-sm mt-1 px-4">
+            Showing only unassigned clients
+          </div>
+        )}
+        
+        {filterMode === 'assigned' && growthbackerFilter && (
+          <div className="text-blue-400 text-sm mt-1 px-4">
+            Filtering by growthbacker: {growthbackerFilter}
+          </div>
+        )}
 
         {error && (
           <div className="error-message bg-red-100 text-red-700 p-4 rounded mb-4">
@@ -612,24 +658,14 @@ const FranchiseClients = () => {
               <DroppableColumn
                 key={status}
                 id={`status-column-${status}`}
-                title={
-                  <div className="flex items-center space-x-2">
-                    <span>{status}</span>
-                    {hasUnassigned && filterMode !== 'unassigned' && (
-                      <Badge 
-                        badgeContent={statusData.preview.filter(c => !c.growthbacker).length || 0}
-                        color="warning"
-                        max={99}
-                      />
-                    )}
-                  </div>
-                }
+                title={status}  // Changed this to just pass the string instead of a React element
                 onDrop={(clientIds) => moveClients(clientIds, status)}
                 selectedClients={selectedClients}
                 loadMoreClients={() => loadMoreClients(status)}
                 loadAllClients={() => loadAllClients(status)}
                 hasMore={statusData.preview.length < statusData.total}
-                totalCount={filteredClients.length}
+                totalCount={statusData.total}  // Use the total count from the server data
+                currentCount={filteredClients.length}  // Add the filtered count as a separate prop
               >
                 {filteredClients.map(client => (
                   <DraggableCustomerCard
@@ -646,7 +682,6 @@ const FranchiseClients = () => {
             );
           })}
         </ColumnsContainer>
-
         <ConfirmationModal
           isOpen={isModalOpen}
           onConfirm={confirmMoveClients}

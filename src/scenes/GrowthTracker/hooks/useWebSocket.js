@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../../../services/UserContext';
 import { constructWsUrl } from '../../../utils/apiUtils';
+import { FRANCHISE_OPTIONS } from '../constants'; // Import franchise options
 
 // Constants
 const RECONNECT_DELAY = 3000;
@@ -36,6 +37,8 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
   const pagesLoadedRef = useRef({});
   const lastMessageTimeRef = useRef(Date.now());
   const mountedRef = useRef(true);
+  // NEW: Ref to track which statuses have been fully loaded (via Load All)
+  const allLoadedStatusesRef = useRef({});
 
   // State
   const [connected, setConnected] = useState(false);
@@ -47,6 +50,15 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
 
   // Auth context
   const { userName } = useAuth();
+
+  // Utility function for franchise name conversion
+  const getFullFranchiseName = useCallback((franchiseCode) => {
+    if (!franchiseCode) return null;
+    
+    const franchiseOption = FRANCHISE_OPTIONS.find(option => option.value === franchiseCode);
+    // Return the label which contains the full name
+    return franchiseOption ? franchiseOption.label : franchiseCode;
+  }, []);
 
   // Cleanup connection
   const cleanupConnection = useCallback(() => {
@@ -86,7 +98,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     reconnectTimeoutRef.current = setTimeout(connect, delay);
   }, [cleanupConnection]);
 
-  // Start ping interval
+  // Start ping interval (modified to check for load-all flags)
   const startPingInterval = useCallback(() => {
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
@@ -95,10 +107,26 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     pingIntervalRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         try {
-          wsRef.current.send(JSON.stringify({
-            type: 'ping',
-            timestamp: Date.now()
-          }));
+          // If any status has been fully loaded, send a fetchAllForStatus for each
+          if (Object.keys(allLoadedStatusesRef.current).length > 0) {
+            Object.keys(allLoadedStatusesRef.current).forEach(status => {
+              wsRef.current.send(JSON.stringify({
+                type: 'fetchAllForStatus',
+                status,
+                specificStatus: null, // you can set this if needed
+                filterMode: window.currentFilterMode || 'assigned',
+                timestamp: Date.now()
+              }));
+              logState('Ping: fetchAllForStatus sent for status', { status });
+            });
+          } else {
+            // Otherwise, send a regular ping
+            wsRef.current.send(JSON.stringify({
+              type: 'ping',
+              timestamp: Date.now()
+            }));
+            logState('Ping sent');
+          }
         } catch (error) {
           logError('Error sending ping', error);
           handleReconnect();
@@ -142,7 +170,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     }
   }, [setLoading]);
 
-  // Handle clients message
+  // Handle clients message (for paginated load more)
   const handleClientsMessage = useCallback((message) => {
     if (!mountedRef.current) return;
     logState('Handling clients message', message);
@@ -203,7 +231,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     });
   }, []);
 
-  // Handle allClientsForStatus message - NEW HANDLER
+  // Handle allClientsForStatus message – update state with the full list and mark as fully loaded
   const handleAllClientsMessage = useCallback((message) => {
     if (!mountedRef.current) return;
     logState('Handling allClientsForStatus message', message);
@@ -218,12 +246,8 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     setInternalClients(prevState => {
       const updatedState = { ...prevState };
       
-      if (!updatedState[status]) {
-        updatedState[status] = { preview: [], total: 0 };
-      }
-      
       updatedState[status] = {
-        preview: clients,
+        preview: clients, // full list from the server
         total: total
       };
 
@@ -239,14 +263,17 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
 
     setStatusHasMore(prev => ({
       ...prev,
-      [status]: false // Set hasMore to false since we've loaded everything
+      [status]: false // mark as no more items to load
     }));
 
     setLoadingStatus(prev => ({
       ...prev,
       [status]: false
     }));
-    
+
+    // Mark this status as fully loaded so that pings will refresh the full data
+    allLoadedStatusesRef.current[status] = true;
+
     logState('Loaded all clients for status', {
       status,
       count: clients.length,
@@ -254,7 +281,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     });
   }, []);
 
-  // Add a sendMessage function to directly communicate with the WebSocket
+  // Enhanced sendMessage function to handle franchise names using LABELS
   const sendMessage = useCallback((message) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       logError('WebSocket not ready to send message', { readyState: wsRef.current?.readyState });
@@ -262,17 +289,33 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     }
 
     try {
-      const messageString = typeof message === 'string' ? message : JSON.stringify(message);
+      let messageToSend = message;
+      
+      if (typeof message === 'object' && message.type === 'searchInStatus') {
+        if (!message.franchise && selectedFranchise) {
+          const fullFranchiseName = getFullFranchiseName(selectedFranchise);
+          messageToSend = {
+            ...message,
+            franchise: fullFranchiseName
+          };
+          logState('Enhanced search message with franchise label', { 
+            code: selectedFranchise, 
+            fullName: fullFranchiseName 
+          });
+        }
+      }
+
+      const messageString = typeof messageToSend === 'string' ? messageToSend : JSON.stringify(messageToSend);
       wsRef.current.send(messageString);
-      logState('Message sent successfully', { message });
+      logState('Message sent successfully', { message: messageToSend });
       return true;
     } catch (error) {
       logError('Error sending WebSocket message', error);
       return false;
     }
-  }, []);
+  }, [selectedFranchise, getFullFranchiseName]);
 
-  // Handle WebSocket messages - UPDATED to handle allClientsForStatus
+  // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((event) => {
     if (!mountedRef.current) return;
     lastMessageTimeRef.current = Date.now();
@@ -285,10 +328,9 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
       const customResponse = onDataUpdate(message);
       if (customResponse) {
         sendMessage(customResponse);
-        return; // Let custom handler take over
+        return;
       }
       
-      // Continue with standard message handling
       switch (message.type) {
         case 'preview':
           handlePreviewMessage(message);
@@ -296,7 +338,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
         case 'clients':
           handleClientsMessage(message);
           break;
-        case 'allClientsForStatus': // NEW CASE
+        case 'allClientsForStatus':
           handleAllClientsMessage(message);
           break;
         case 'error':
@@ -308,7 +350,6 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
           logState('Received pong');
           break;
         case 'searchResults':
-          // For logging only - actual handling is done by parent component
           logState('Search results received', { 
             count: message.clients?.length || 0,
             status: message.status 
@@ -347,7 +388,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     }
   }, []);
 
-  // Load more clients
+  // Load more clients (pagination)
   const loadMoreClients = useCallback((status) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       logError('WebSocket not ready', { readyState: wsRef.current?.readyState });
@@ -390,7 +431,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     }));
   }, []);
 
-  // Load all clients for a status - NEW FUNCTION
+  // Load all clients for a specific status and franchise – triggered by the button
   const loadAllClients = useCallback((status, specificStatus = null) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       logError('WebSocket not ready', { readyState: wsRef.current?.readyState });
@@ -411,10 +452,13 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     wsRef.current.send(JSON.stringify({
       type: 'fetchAllForStatus',
       status,
-      specificStatus, // Optional sub-status
-      filterMode: window.currentFilterMode,
+      specificStatus,
+      filterMode: window.currentFilterMode || 'assigned',
       timestamp: Date.now()
     }));
+
+    // Optionally, clear any previous flag so that the new load is registered
+    allLoadedStatusesRef.current[status] = false;
   }, []);
 
   // Initialize WebSocket connection
@@ -433,15 +477,18 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     try {
       cleanupConnection();
   
-      // Build the URL parameters - we ONLY need authorization and filterMode
       const params = new URLSearchParams({
         authorization: userName,
         filterMode: window.currentFilterMode || 'assigned'
       });
       
-      // Only add franchise parameter if it's actually specified (not empty string)
       if (selectedFranchise) {
-        params.append('franchise', selectedFranchise);
+        const fullFranchiseName = getFullFranchiseName(selectedFranchise);
+        params.append('franchise', fullFranchiseName);
+        logState('Using franchise for connection', { 
+          code: selectedFranchise, 
+          fullName: fullFranchiseName 
+        });
       }
       
       const wsUrl = constructWsUrl(`/ws/clients?${params.toString()}`);
@@ -478,8 +525,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
           timestamp: Date.now()
         }));
 
-        // Added: Explicitly send growthbacker filter right after connecting
-        // This ensures consistency after reconnection
+        // Send growthbacker filter after connecting
         const growthbackerFilter = window.growthbackerFilter || null;
         wsRef.current.send(JSON.stringify({ 
           type: 'setGrowthbacker',
@@ -524,7 +570,8 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     startPingInterval,
     cleanupConnection,
     handleReconnect,
-    setLoading
+    setLoading,
+    getFullFranchiseName
   ]);
 
   // Reset pagination when franchise changes
@@ -586,7 +633,7 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
     connectionState,
     updateClientStatus,
     loadMoreClients,
-    loadAllClients, // NEW: Added to return object
+    loadAllClients,
     hasMore: statusHasMore,
     loadingStatus,
     reconnectAttempts: reconnectAttemptsRef.current,
@@ -594,7 +641,8 @@ export const useWebSocket = (selectedFranchise, onDataUpdate, setHasMore, setLoa
       reconnectAttemptsRef.current = 0;
       connect();
     },
-    sendMessage
+    sendMessage,
+    getFullFranchiseName
   };
 };
 

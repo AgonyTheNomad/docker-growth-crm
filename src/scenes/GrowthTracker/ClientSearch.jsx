@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+// No need to import FRANCHISE_OPTIONS since we're using the utility from useWebSocket
 
 const ClientSearch = ({
   connected,
   selectedFranchiseValue,
-  sendMessage,
+  sendMessage, // This now handles franchise name conversion automatically
   handleCheckboxChange,
   searchResults,
   setSearchResults,
@@ -113,6 +114,7 @@ const ClientSearch = ({
       status: null,
       searchTerm: searchTerm.trim(),
       searchAcrossStatuses: true
+      // No need to add franchise - enhanced sendMessage will handle it
     };
 
     setSearchParams(params);

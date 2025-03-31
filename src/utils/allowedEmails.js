@@ -11,7 +11,8 @@ export const allowedEmails = [
           "jstowe@cyberbacker.com",
           "jonelbuenaventura@cyberbacker.com",
           "claudiogalsim@cyberbacker.com",
-          "kdpelonia@cyberbacker.com"
+          "kdpelonia@cyberbacker.com",
+          "sajagpatel0809@gmail.com"
       ]
   },
 

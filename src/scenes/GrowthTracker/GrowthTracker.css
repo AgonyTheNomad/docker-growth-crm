@@ -3,42 +3,93 @@
   max-width: 300px; /* Adjust max-width as needed for a more compact look */
 }
   
-  .label {
-    display: block;
-    margin-bottom: 5px;
-    color: #666;
-    font-size: 1.2rem;
-  }
+.label {
+  display: block;
+  margin-bottom: 5px;
+  color: #666;
+  font-size: 1.2rem;
+}
   
-  .columns-container {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    justify-content: space-around;
-    align-items: flex-start;
-  }
+.columns-container {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  justify-content: space-around;
+  align-items: flex-start;
+}
   
-  .column {
-    min-width: 200px;
-    flex: 0 0 auto;
-    padding: 10px;
-  }
+.column {
+  min-width: 200px;
+  flex: 0 0 auto;
+  padding: 10px;
+}
   
-  .loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
+.loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
 
-  .dropdown-container {
-    display: flex;
-    justify-content: center;
-    padding: 20px;
-    margin-right: 150px;
-    max-width: 700px;
-  }
-  .first-column {
-    margin-left: 20px; /* Adjust the value as needed */
-  }
-  
+.dropdown-container {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  margin-right: 150px;
+  max-width: 700px;
+}
+
+.first-column {
+  margin-left: 20px; /* Adjust the value as needed */
+}
+
+/* New styles for status headers */
+.status-header-container {
+  background-color: #1e293b;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  padding: 16px;
+  color: white;
+}
+
+.status-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.status-header-row {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.status-header-item {
+  background-color: #334155;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-right: 8px;
+  min-width: 180px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-count {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.875rem;
+  color: #93c5fd;
+}
+
+/* Hide column headers in DroppableColumn */
+.hide-column-headers .MuiPaper-root > div:first-child {
+  display: none !important;
+}
+
+/* Style the columns without headers */
+.hide-column-headers .MuiPaper-root {
+  border-top: 4px solid #3b82f6; /* Blue border to indicate column */
+}
